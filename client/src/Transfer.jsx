@@ -1,7 +1,11 @@
 import { useState } from "react";
 import server from "./server";
+import { secp256k1 } from "ethereum-cryptography/secp256k1";
+import { toHex } from "ethereum-cryptography/utils";
+import { sha256 } from "ethereum-cryptography/sha256.js";
 
-function Transfer({ address, setBalance }) {
+
+function Transfer({ address, setBalance, privateKey }) {
   const [sendAmount, setSendAmount] = useState("");
   const [recipient, setRecipient] = useState("");
 
@@ -10,18 +14,32 @@ function Transfer({ address, setBalance }) {
   async function transfer(evt) {
     evt.preventDefault();
 
-    try {
-      const {
-        data: { balance },
-      } = await server.post(`send`, {
-        sender: address,
-        amount: parseInt(sendAmount),
-        recipient,
-      });
-      setBalance(balance);
-    } catch (ex) {
+    const array = new Uint32Array(1);
+    self.crypto.getRandomValues(array);
+    const randomToken = array[0].toString();
+    const message = {
+      sender: address,
+      amount: parseInt(sendAmount),
+      recipient,
+      token: randomToken,
+    }
+    const messageHash = toHex(sha256(Uint8Array.from(message)));
+    const signature = secp256k1.sign(messageHash, privateKey);
+    const {
+      data: { balance },
+    } = await server.post(`send`, {
+      sender: address,
+      amount: parseInt(sendAmount),
+      recipient,
+      token: randomToken,
+      r: signature.r.toString(),
+      s: signature.s.toString(),
+      recovery: signature.recovery },
+    );
+    if (balance === undefined) {
       alert(ex.response.data.message);
     }
+    setBalance(balance);
   }
 
   return (
@@ -38,7 +56,7 @@ function Transfer({ address, setBalance }) {
       </label>
 
       <label>
-        Recipient
+        Recipient's address
         <input
           placeholder="Type an address, for example: 0x2"
           value={recipient}
